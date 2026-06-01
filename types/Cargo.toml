@@ -1,0 +1,11 @@
+[package]
+name = "stellanest-types"
+version = "0.1.0"
+edition = "2021"
+description = "Shared types for Stellanest Soroban contracts"
+
+[dependencies]
+soroban-sdk = { workspace = true }
+
+[lib]
+crate-type = ["cdylib", "rlib"]

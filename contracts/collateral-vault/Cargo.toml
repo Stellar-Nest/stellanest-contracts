@@ -1,0 +1,15 @@
+[package]
+name = "stellanest-collateral-vault"
+version = "0.1.0"
+edition = "2021"
+description = "Soroban contract for USDC collateral custody, insurance fund, and position-backed locks"
+
+[dependencies]
+soroban-sdk = { workspace = true }
+stellanest-types = { workspace = true }
+
+[dev-dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }
+
+[lib]
+crate-type = ["cdylib", "rlib"]

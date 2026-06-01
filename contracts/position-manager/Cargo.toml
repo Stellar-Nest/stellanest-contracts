@@ -1,0 +1,15 @@
+[package]
+name = "stellanest-position-manager"
+version = "0.1.0"
+edition = "2021"
+description = "Soroban contract for managing leveraged long/short positions on city indices"
+
+[dependencies]
+soroban-sdk = { workspace = true }
+stellanest-types = { workspace = true }
+
+[dev-dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }
+
+[lib]
+crate-type = ["cdylib", "rlib"]

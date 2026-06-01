@@ -1,0 +1,15 @@
+[package]
+name = "stellanest-index-token-factory"
+version = "0.1.0"
+edition = "2021"
+description = "Soroban contract for creating city index tokens and position NFTs (SEP-0048)"
+
+[dependencies]
+soroban-sdk = { workspace = true }
+stellanest-types = { workspace = true }
+
+[dev-dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }
+
+[lib]
+crate-type = ["cdylib", "rlib"]

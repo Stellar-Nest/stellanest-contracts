@@ -1,0 +1,15 @@
+[package]
+name = "stellanest-price-oracle"
+version = "0.1.0"
+edition = "2021"
+description = "Soroban contract for multi-oracle price aggregation with weighted median"
+
+[dependencies]
+soroban-sdk = { workspace = true }
+stellanest-types = { workspace = true }
+
+[dev-dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }
+
+[lib]
+crate-type = ["cdylib", "rlib"]
