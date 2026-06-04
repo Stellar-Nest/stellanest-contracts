@@ -1,8 +1,16 @@
 #![no_std]
-use soroban_sdk::{contract, contractimpl, Address, Env, Symbol, Vec};
+use soroban_sdk::{contract, contractclient, contractimpl, Address, Env, Symbol, Vec};
 use stellanest_types::{
     CloseResult, Direction, LiquidateResult, Position, PositionStatus,
 };
+
+/// Client trait for cross-contract calls to the CollateralVault contract.
+#[contractclient(name = "CollateralVaultClient")]
+pub trait CollateralVault {
+    fn lock_for_position(env: Env, caller: Address, user: Address, position_id: u128, amount: i128);
+    fn release_from_position(env: Env, caller: Address, position_id: u128, user: Address, amount: i128);
+    fn seize_collateral(env: Env, caller: Address, position_id: u128, amount: i128, to_insurance: i128, to_user: i128);
+}
 
 /// Health factor thresholds (basis points)
 const LIQUIDATION_THRESHOLD: i128 = 12000; // 1.2x
@@ -311,17 +319,25 @@ impl PositionManager {
     }
 
     fn lock_collateral(env: &Env, user: &Address, position_id: u128, amount: i128) {
-        // In production, this calls vault.lock_for_position().
-        // For now, emit event for off-chain processing.
+        let vault_addr: Address = env.storage().instance().get(&Symbol::new(env, "vault")).unwrap();
+        let vault_client = CollateralVaultClient::new(env, &vault_addr);
+        let contract_addr = env.current_contract_address();
+        vault_client.lock_for_position(&contract_addr, user, &position_id, &amount);
+
         env.events().publish(
-            (Symbol::new(env, "lock_collateral"), user.clone()),
+            (Symbol::new(env, "collateral_locked"), user.clone()),
             (position_id, amount),
         );
     }
 
     fn release_collateral(env: &Env, position_id: u128, user: &Address, amount: i128) {
+        let vault_addr: Address = env.storage().instance().get(&Symbol::new(env, "vault")).unwrap();
+        let vault_client = CollateralVaultClient::new(env, &vault_addr);
+        let contract_addr = env.current_contract_address();
+        vault_client.release_from_position(&contract_addr, &position_id, user, &amount);
+
         env.events().publish(
-            (Symbol::new(env, "release_collateral"), user.clone()),
+            (Symbol::new(env, "collateral_released"), user.clone()),
             (position_id, amount),
         );
     }
@@ -334,8 +350,13 @@ impl PositionManager {
         to_user: i128,
         user: &Address,
     ) {
+        let vault_addr: Address = env.storage().instance().get(&Symbol::new(env, "vault")).unwrap();
+        let vault_client = CollateralVaultClient::new(env, &vault_addr);
+        let contract_addr = env.current_contract_address();
+        vault_client.seize_collateral(&contract_addr, &position_id, &total, &to_insurance, &to_user);
+
         env.events().publish(
-            (Symbol::new(env, "seize_collateral"), user.clone()),
+            (Symbol::new(env, "collateral_seized"), user.clone()),
             (position_id, total, to_insurance, to_user),
         );
     }
