@@ -28,6 +28,7 @@ pub struct IndexCalculator;
 impl IndexCalculator {
     /// Initialize the contract with an admin address.
     pub fn initialize(env: Env, admin: Address) {
+        assert!(!env.storage().instance().has(&keys::admin(&env)), "already initialized");
         env.storage().instance().set(&keys::admin(&env), &admin);
         env.storage().instance().set(&keys::city_list(&env), &Vec::<Symbol>::new(&env));
     }
