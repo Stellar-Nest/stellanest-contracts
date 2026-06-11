@@ -24,6 +24,7 @@ impl PositionManager {
         oracle_address: Address,
         index_address: Address,
     ) {
+        assert!(!env.storage().instance().has(&Symbol::new(&env, "admin")), "already initialized");
         env.storage().instance().set(&Symbol::new(&env, "admin"), &admin);
         env.storage().instance().set(&Symbol::new(&env, "vault"), &vault_address);
         env.storage().instance().set(&Symbol::new(&env, "oracle"), &oracle_address);

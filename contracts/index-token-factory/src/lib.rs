@@ -9,6 +9,7 @@ pub struct IndexTokenFactory;
 impl IndexTokenFactory {
     /// Initialize the factory with an admin.
     pub fn initialize(env: Env, admin: Address) {
+        assert!(!env.storage().instance().has(&Symbol::new(&env, "admin")), "already initialized");
         env.storage().instance().set(&Symbol::new(&env, "admin"), &admin);
         env.storage().instance().set(&Symbol::new(&env, "city_count"), &0u32);
     }

@@ -12,6 +12,7 @@ pub struct PriceOracle;
 impl PriceOracle {
     /// Initialize with admin and minimum oracle count for valid aggregation.
     pub fn initialize(env: Env, admin: Address, min_oracles: u32) {
+        assert!(!env.storage().instance().has(&Symbol::new(&env, "admin")), "already initialized");
         env.storage().instance().set(&Symbol::new(&env, "admin"), &admin);
         env.storage().instance().set(&Symbol::new(&env, "min_oracles"), &min_oracles);
         env.storage().instance().set(&Symbol::new(&env, "oracle_count"), &0u32);

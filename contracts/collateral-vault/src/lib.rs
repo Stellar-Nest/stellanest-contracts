@@ -8,6 +8,7 @@ pub struct CollateralVault;
 impl CollateralVault {
     /// Initialize the vault with USDC token address and authorized position manager.
     pub fn initialize(env: Env, admin: Address, usdc_address: Address, position_manager: Address) {
+        assert!(!env.storage().instance().has(&Symbol::new(&env, "admin")), "already initialized");
         env.storage().instance().set(&Symbol::new(&env, "admin"), &admin);
         env.storage().instance().set(&Symbol::new(&env, "usdc"), &usdc_address);
         env.storage().instance().set(&Symbol::new(&env, "pos_mgr"), &position_manager);
