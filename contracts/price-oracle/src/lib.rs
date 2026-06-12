@@ -2,6 +2,8 @@
 use soroban_sdk::{contract, contractimpl, Address, Env, Symbol, Vec};
 use stellanest_types::{AggregatedPrice, PriceSubmission};
 
+const STALENESS_THRESHOLD: u64 = 60 * 60; // 1 hour
+
 #[contract]
 pub struct PriceOracle;
 
@@ -97,15 +99,31 @@ impl PriceOracle {
     }
 
     /// Get the aggregated price for a city.
+    /// Returns confidence: 0 if the price data is stale (older than STALENESS_THRESHOLD).
     pub fn get_price(env: Env, city: Symbol) -> AggregatedPrice {
         let agg_key = Symbol::new(&env, &format!("agg_{}", city));
-        env.storage().persistent().get(&agg_key).unwrap_or(AggregatedPrice {
-            city,
+        let agg = env.storage().persistent().get(&agg_key).unwrap_or(AggregatedPrice {
+            city: city.clone(),
             price: 0,
             confidence: 0,
             oracle_count: 0,
             last_updated: 0,
-        })
+        });
+
+        // Staleness detection: if the aggregated price is older than the threshold,
+        // zero out the confidence to signal that the data is unreliable.
+        let now = env.ledger().timestamp();
+        if agg.last_updated == 0 || now.saturating_sub(agg.last_updated) > STALENESS_THRESHOLD {
+            return AggregatedPrice {
+                city: city.clone(),
+                price: agg.price,
+                confidence: 0,
+                oracle_count: agg.oracle_count,
+                last_updated: agg.last_updated,
+            };
+        }
+
+        agg
     }
 
     /// Get aggregated prices for all cities.
