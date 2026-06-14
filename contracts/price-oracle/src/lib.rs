@@ -1,9 +1,8 @@
 #![no_std]
 use soroban_sdk::{contract, contractimpl, Address, Env, Symbol, Vec};
-use stellanest_types::AggregatedPrice;
+use stellanest_types::{AggregatedPrice, PriceSubmission};
 
-const STALENESS_THRESHOLD: u64 = 24 * 60 * 60; // 24 hours
-const MIN_CONFIDENCE: u32 = 5000; // 50%
+const STALENESS_THRESHOLD: u64 = 60 * 60; // 1 hour
 
 #[contract]
 pub struct PriceOracle;
@@ -59,9 +58,36 @@ impl PriceOracle {
         let weight: u32 = env.storage().persistent().get(&Self::oracle_key(&env, &oracle)).unwrap_or(0);
         assert!(weight > 0, "oracle not registered");
 
-        // Store submission
-        let sub_key = Self::sub_key(&env, &oracle, &city);
-        env.storage().temporary().set(&sub_key, &(price, confidence, timestamp));
+        // Build submission
+        let submission = PriceSubmission {
+            oracle: oracle.clone(),
+            city: city.clone(),
+            price,
+            confidence,
+            timestamp,
+        };
+
+        // Store in city-level submissions Vec (update existing or append)
+        let submissions_key = Symbol::new(&env, &format!("submissions_{}", city));
+        let submissions: Vec<PriceSubmission> = env.storage().persistent()
+            .get(&submissions_key)
+            .unwrap_or(Vec::new(&env));
+
+        let mut updated = Vec::new(&env);
+        let mut found = false;
+        for i in 0..submissions.len() {
+            let sub = submissions.get(i).unwrap();
+            if sub.oracle == oracle {
+                updated.push_back(submission.clone());
+                found = true;
+            } else {
+                updated.push_back(sub);
+            }
+        }
+        if !found {
+            updated.push_back(submission);
+        }
+        env.storage().persistent().set(&submissions_key, &updated);
 
         // Try to aggregate
         Self::try_aggregate(&env, &city);
@@ -73,15 +99,31 @@ impl PriceOracle {
     }
 
     /// Get the aggregated price for a city.
+    /// Returns confidence: 0 if the price data is stale (older than STALENESS_THRESHOLD).
     pub fn get_price(env: Env, city: Symbol) -> AggregatedPrice {
         let agg_key = Symbol::new(&env, &format!("agg_{}", city));
-        env.storage().persistent().get(&agg_key).unwrap_or(AggregatedPrice {
-            city,
+        let agg = env.storage().persistent().get(&agg_key).unwrap_or(AggregatedPrice {
+            city: city.clone(),
             price: 0,
             confidence: 0,
             oracle_count: 0,
             last_updated: 0,
-        })
+        });
+
+        // Staleness detection: if the aggregated price is older than the threshold,
+        // zero out the confidence to signal that the data is unreliable.
+        let now = env.ledger().timestamp();
+        if agg.last_updated == 0 || now.saturating_sub(agg.last_updated) > STALENESS_THRESHOLD {
+            return AggregatedPrice {
+                city: city.clone(),
+                price: agg.price,
+                confidence: 0,
+                oracle_count: agg.oracle_count,
+                last_updated: agg.last_updated,
+            };
+        }
+
+        agg
     }
 
     /// Get aggregated prices for all cities.
@@ -106,10 +148,6 @@ impl PriceOracle {
         Symbol::new(env, &format!("oracle_{}", addr))
     }
 
-    fn sub_key(env: &Env, oracle: &Address, city: &Symbol) -> Symbol {
-        Symbol::new(env, &format!("sub_{}_{}", oracle, city))
-    }
-
     fn require_admin(env: &Env, addr: &Address) {
         let admin: Address = env.storage().instance().get(&Symbol::new(env, "admin")).unwrap();
         assert_eq!(*addr, admin, "not admin");
@@ -119,27 +157,77 @@ impl PriceOracle {
     fn try_aggregate(env: &Env, city: &Symbol) {
         let now = env.ledger().timestamp();
         let min_oracles: u32 = env.storage().instance().get(&Symbol::new(env, "min_oracles")).unwrap();
-
-        // Collect fresh submissions (within 1 hour window)
         let one_hour = 3600u64;
-        // In production, iterate over registered oracles.
-        // For scaffolding, we emit an event that the off-chain aggregator reads.
-        // The on-chain aggregation is triggered after enough submissions arrive.
 
-        // Simplified: store that aggregation was attempted
-        let agg_key = Symbol::new(env, &format!("agg_{}", city));
-        let existing: AggregatedPrice = env.storage().persistent().get(&agg_key).unwrap_or(AggregatedPrice {
+        // Read all submissions for this city
+        let submissions_key = Symbol::new(env, &format!("submissions_{}", city));
+        let submissions: Vec<PriceSubmission> = env.storage().persistent()
+            .get(&submissions_key)
+            .unwrap_or(Vec::new(env));
+
+        // Collect fresh submissions (within 1 hour window) into price/confidence pairs
+        let mut recent_prices = Vec::<(i128, u32)>::new(env);
+        let mut total_confidence: u32 = 0;
+
+        for i in 0..submissions.len() {
+            let sub = submissions.get(i).unwrap();
+            if now - sub.timestamp < one_hour {
+                recent_prices.push_back((sub.price, sub.confidence));
+                total_confidence += sub.confidence;
+            }
+        }
+
+        // Need minimum number of oracle submissions to aggregate
+        if recent_prices.len() < min_oracles {
+            return;
+        }
+
+        // Bubble sort by price for median calculation
+        let len = recent_prices.len();
+        for i in 0..len {
+            for j in 0..len - 1 - i {
+                let a = recent_prices.get(j).unwrap();
+                let b = recent_prices.get(j + 1).unwrap();
+                if a.0 > b.0 {
+                    recent_prices.set(j, b);
+                    recent_prices.set(j + 1, a);
+                }
+            }
+        }
+
+        // Weighted median: walk through sorted prices accumulating confidence weights
+        let mid_weight = total_confidence / 2;
+        let mut running_weight: u32 = 0;
+        let mut median_price = recent_prices.get(0).unwrap().0;
+
+        for i in 0..recent_prices.len() {
+            let (price, conf) = recent_prices.get(i).unwrap();
+            running_weight += conf;
+            if running_weight >= mid_weight {
+                median_price = price;
+                break;
+            }
+        }
+
+        // Confidence is average of submission confidences
+        let avg_confidence = total_confidence / recent_prices.len();
+
+        // Write aggregated price
+        let agg = AggregatedPrice {
             city: city.clone(),
-            price: 0,
-            confidence: 0,
-            oracle_count: 0,
-            last_updated: 0,
-        });
+            price: median_price,
+            confidence: avg_confidence,
+            oracle_count: recent_prices.len(),
+            last_updated: now,
+        };
 
-        // Mark as needing aggregation — off-chain keeper will call aggregate()
+        let agg_key = Symbol::new(env, &format!("agg_{}", city));
+        env.storage().persistent().set(&agg_key, &agg);
+
+        // Emit event
         env.events().publish(
-            (Symbol::new(env, "aggregate_needed"), city.clone()),
-            now,
+            (Symbol::new(env, "price_aggregated"), city.clone()),
+            agg,
         );
     }
 }
