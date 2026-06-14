@@ -128,6 +128,9 @@ impl CollateralVault {
 
         let (user, locked_amount): (Address, i128) = env.storage().persistent().get(&Self::lock_key(&env, position_id)).unwrap();
         assert!(amount <= locked_amount, "seize exceeds locked");
+        assert!(to_insurance + to_user == locked_amount, "split must equal locked amount");
+        assert!(to_insurance >= 0, "insurance amount must be non-negative");
+        assert!(to_user >= 0, "user amount must be non-negative");
 
         // Remove lock
         env.storage().persistent().remove(&Self::lock_key(&env, position_id));
